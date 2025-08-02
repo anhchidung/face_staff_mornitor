@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nhận diện Video</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            display: flex;
+        }
+        .sidebar {
+            width: 200px;
+            background-color: #5cb85c;
+            padding: 15px;
+            box-shadow: 2px 0 5px rgba(0, 0, 0, 0.1);
+        }
+        .sidebar button {
+            width: 100%;
+            padding: 10px;
+            margin: 5px 0;
+            border: none;
+            background-color: #fff;
+            color: #333;
+            font-size: 16px;
+            cursor: pointer;
+            border-radius: 5px;
+            transition: background-color 0.3s;
+        }
+        .sidebar button:hover {
+            background-color: #e7e7e7;
+        }
+        .content {
+            flex-grow: 1;
+            padding: 20px;
+            background-color: #f4f4f4;
+            height: 100vh;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        video {
+            width: 640px;
+            height: 480px;
+            border: 1px solid #ddd;
+            margin-top: 20px;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            border: none;
+            border-radius: 5px;
+            transition: background-color 0.3s;
+        }
+        .pause-button {
+            background-color: red;
+            color: white;
+        }
+        .pause-button:hover {
+            background-color: darkred;
+        }
+        .start-button {
+            background-color: #5cb85c;
+            color: white;
+        }
+        .start-button:hover {
+            background-color: #4cae4c;
+        }
+        #results {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #fff;
+            border: 1px solid #ddd;
+            width: 100%;
+            max-width: 640px;
+            border-radius: 5px;
+            text-align: center; /* Center the text */
+        }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <button onclick="location.href='register_face'">Đăng ký Khuôn mặt</button>
+        <button onclick="location.href='image_recognition'">Nhận diện Hình ảnh</button>
+        <button onclick="location.href='video_recognition'">Nhận diện Video</button>
+        <button onclick="location.href='recognition_results'">Kết quả Nhận diện</button>
+        <button onclick="location.href='register_account'">Đăng ký Tài khoản</button>
+        <button onclick="location.href='logout'">Đăng xuất</button>
+    </div>
+
+    <div class="content">
+        <h2>Nhận diện Video</h2>
+        <div class="button-container">
+            <button class="start-button" onclick="selectVideo()">Chọn Video</button>
+            <button class="start-button" onclick="startCamera()">Sử dụng Camera</button>
+            <button class="pause-button" onclick="pauseVideo()">Tạm dừng</button>
+        </div>
+        <video id="videoElement" autoplay></video>
+        <div id="results"></div> <!-- Div to display results -->
+    </div>
+
+    <script>
+        let mediaStream = null;
+        let frameCount = 0;
+        let intervalId = null;
+        let timeoutId = null; // To manage timeout for clearing results
+
+        function selectVideo() {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'video/*';
+            input.onchange = (event) => {
+                const file = event.target.files[0];
+                const videoElement = document.getElementById('videoElement');
+                videoElement.src = URL.createObjectURL(file);
+                videoElement.play();
+                startFrameCapture(videoElement);
+            };
+            input.click();
+        }
+
+        function startCamera() {
+            const videoElement = document.getElementById('videoElement');
+            navigator.mediaDevices.getUserMedia({ video: true })
+                .then((stream) => {
+                    mediaStream = stream;
+                    videoElement.srcObject = stream;
+                    videoElement.play();
+                    startFrameCapture(videoElement);
+                })
+                .catch((error) => {
+                    console.error('Error accessing the camera:', error);
+                });
+        }
+
+        function pauseVideo() {
+            const videoElement = document.getElementById('videoElement');
+            videoElement.pause();
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(track => track.stop()); // Dừng camera
+                mediaStream = null;
+            }
+            clearInterval(intervalId); // Dừng việc chụp ảnh
+            clearResults(); // Clear results when paused
+        }
+
+        function startFrameCapture(videoElement) {
+            clearInterval(intervalId); // Đảm bảo không có interval cũ
+            intervalId = setInterval(() => {
+                if (!videoElement.paused && !videoElement.ended) {
+                    frameCount++;
+                    if (frameCount % 10 === 0) {
+                        captureImage(videoElement);
+                    }
+                }
+            }, 100); // 100 ms
+        }
+
+        function captureImage(videoElement) {
+            const canvas = document.createElement('canvas');
+            canvas.width = videoElement.videoWidth;
+            canvas.height = videoElement.videoHeight;
+            const context = canvas.getContext('2d');
+            context.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+            const formData = new FormData();
+            formData.append('image', dataUrl);
+
+            fetch('/process_image', {
+                method: 'POST',
+                body: formData,
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Response from server:', data);
+                displayResults(data); // Call function to display results
+            })
+            .catch(error => {
+                console.error('Error sending image:', error);
+            });
+        }
+        function displayResults(data) {
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = ''; // Clear previous results
+
+            if (data.message && data.name && data.name !== "Unknown") {
+                // Create a container for horizontal alignment
+                resultsDiv.innerHTML += `
+                    <div style="display: flex; align-items: center; margin-bottom: 10px;">
+                        <img src="${data.face_path}" alt="Ảnh khuôn mặt" style="width: 40%; max-width: 100px; height: auto; border-radius: 5px; margin-right: 10px;">
+                        <div style="flex: 1; display: flex; flex-direction: column;">
+                            <p style="margin: 5px 0; font-weight: bold;">Tên: ${data.name}</p>
+                            <p style="margin: 5px 0;">CCCD: ${data.cccd}</p>
+                            <p style="margin: 5px 0;">Điện thoại: ${data.phone}</p>
+                        </div>
+                    </div>
+                `;
+
+                // Clear previous timeout if exists
+                clearTimeout(timeoutId);
+                // Set a new timeout to clear results after 4 seconds
+                timeoutId = setTimeout(clearResults, 4000);
+            }
+        }
+        function clearResults() {
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = ''; // Clear the results
+        }
+    </script>
+</body>
+</html>
